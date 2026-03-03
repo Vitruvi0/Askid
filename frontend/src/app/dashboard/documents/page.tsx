@@ -31,7 +31,7 @@ export default function DocumentsPage() {
       const data = await api.getDocuments() as { documents: Document[] };
       setDocuments(data.documents);
     } catch (err) {
-      toast.error("Failed to load documents");
+      toast.error("Impossibile caricare i documenti");
     } finally {
       setLoading(false);
     }
@@ -41,22 +41,33 @@ export default function DocumentsPage() {
     fetchDocuments();
   }, [fetchDocuments]);
 
+  // Poll for status updates when documents are uploading/processing
+  useEffect(() => {
+    const hasProcessing = documents.some(
+      (d) => d.status === "uploading" || d.status === "processing"
+    );
+    if (!hasProcessing) return;
+
+    const interval = setInterval(fetchDocuments, 3000);
+    return () => clearInterval(interval);
+  }, [documents, fetchDocuments]);
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith(".pdf")) {
-      toast.error("Only PDF files are accepted");
+      toast.error("Sono accettati solo file PDF");
       return;
     }
 
     setUploading(true);
     try {
       await api.uploadDocument(file);
-      toast.success("Document uploaded successfully. Processing...");
+      toast.success("Documento caricato con successo. Elaborazione in corso...");
       fetchDocuments();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
+      toast.error(err instanceof Error ? err.message : "Caricamento fallito");
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -64,17 +75,17 @@ export default function DocumentsPage() {
   };
 
   const handleDelete = async (doc: Document) => {
-    if (!confirm(`Delete "${doc.original_filename}" permanently?`)) return;
+    if (!confirm(`Eliminare "${doc.original_filename}" definitivamente?`)) return;
     try {
       await api.deleteDocument(doc.id);
-      toast.success("Document deleted");
+      toast.success("Documento eliminato");
       setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
       if (selectedDoc?.id === doc.id) {
         setSelectedDoc(null);
         setAnswer(null);
       }
     } catch (err) {
-      toast.error("Failed to delete document");
+      toast.error("Impossibile eliminare il documento");
     }
   };
 
@@ -88,7 +99,7 @@ export default function DocumentsPage() {
       const result = await api.askQuestion(selectedDoc.id, question) as QAResponse;
       setAnswer(result);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to get answer");
+      toast.error(err instanceof Error ? err.message : "Impossibile ottenere una risposta");
     } finally {
       setAsking(false);
     }
@@ -111,14 +122,14 @@ export default function DocumentsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Documents</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Documenti</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Upload and query insurance policy documents
+            Carica e interroga documenti di polizze assicurative
           </p>
         </div>
         <label className="btn-primary cursor-pointer flex items-center gap-2">
           <Upload className="h-4 w-4" />
-          {uploading ? "Uploading..." : "Upload PDF"}
+          {uploading ? "Caricamento..." : "Carica PDF"}
           <input
             type="file"
             accept=".pdf"
@@ -130,10 +141,10 @@ export default function DocumentsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Document List */}
+        {/* Lista Documenti */}
         <div className="card">
           <div className="p-4 border-b border-gray-200">
-            <h2 className="font-semibold text-gray-900">Your Documents</h2>
+            <h2 className="font-semibold text-gray-900">I tuoi Documenti</h2>
           </div>
           <div className="divide-y divide-gray-100">
             {loading ? (
@@ -143,7 +154,7 @@ export default function DocumentsPage() {
             ) : documents.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
                 <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                <p>No documents yet. Upload a PDF to get started.</p>
+                <p>Nessun documento. Carica un PDF per iniziare.</p>
               </div>
             ) : (
               documents.map((doc) => (
@@ -166,7 +177,7 @@ export default function DocumentsPage() {
                     </p>
                     <p className="text-xs text-gray-500">
                       {formatBytes(doc.file_size)} &middot;{" "}
-                      {doc.page_count ? `${doc.page_count} pages` : "Processing"}{" "}
+                      {doc.page_count ? `${doc.page_count} pagine` : "In elaborazione"}{" "}
                       &middot; {formatDate(doc.created_at)}
                     </p>
                   </div>
@@ -188,19 +199,19 @@ export default function DocumentsPage() {
           </div>
         </div>
 
-        {/* Q&A Panel */}
+        {/* Pannello Domande e Risposte */}
         <div className="card flex flex-col">
           <div className="p-4 border-b border-gray-200">
             <h2 className="font-semibold text-gray-900 flex items-center gap-2">
               <MessageSquare className="h-5 w-5" />
-              Document Q&A
+              Domande sul Documento
             </h2>
           </div>
 
           {selectedDoc ? (
             <div className="flex-1 flex flex-col">
               <div className="p-4 bg-gray-50 text-sm">
-                Querying: <strong>{selectedDoc.original_filename}</strong>
+                Interrogazione: <strong>{selectedDoc.original_filename}</strong>
               </div>
 
               <form onSubmit={handleAsk} className="p-4 border-b border-gray-200">
@@ -209,7 +220,7 @@ export default function DocumentsPage() {
                     type="text"
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}
-                    placeholder="Ask a question about this document..."
+                    placeholder="Fai una domanda su questo documento..."
                     className="input-field flex-1"
                     disabled={asking || selectedDoc.status !== "ready"}
                   />
@@ -223,7 +234,7 @@ export default function DocumentsPage() {
                     ) : (
                       <Search className="h-4 w-4" />
                     )}
-                    Ask
+                    Chiedi
                   </button>
                 </div>
               </form>
@@ -233,7 +244,7 @@ export default function DocumentsPage() {
                   <div className="space-y-4">
                     <div>
                       <h3 className="text-sm font-semibold text-gray-700 mb-1">
-                        Answer
+                        Risposta
                       </h3>
                       <p className="text-sm text-gray-900">{answer.answer}</p>
                     </div>
@@ -241,7 +252,7 @@ export default function DocumentsPage() {
                     {answer.referenced_sections.length > 0 && (
                       <div>
                         <h3 className="text-sm font-semibold text-gray-700 mb-1">
-                          Referenced Sections
+                          Sezioni di Riferimento
                         </h3>
                         <ul className="text-sm text-gray-600 space-y-1">
                           {answer.referenced_sections.map((s, i) => (
@@ -257,7 +268,7 @@ export default function DocumentsPage() {
                     {answer.quoted_passages.length > 0 && (
                       <div>
                         <h3 className="text-sm font-semibold text-gray-700 mb-1">
-                          Quoted Passages
+                          Passaggi Citati
                         </h3>
                         {answer.quoted_passages.map((q, i) => (
                           <blockquote
@@ -273,7 +284,7 @@ export default function DocumentsPage() {
                     {answer.exclusions_and_limits.length > 0 && (
                       <div>
                         <h3 className="text-sm font-semibold text-gray-700 mb-1">
-                          Exclusions & Limits
+                          Esclusioni e Limiti
                         </h3>
                         <ul className="text-sm text-red-600 space-y-1">
                           {answer.exclusions_and_limits.map((e, i) => (
@@ -287,7 +298,7 @@ export default function DocumentsPage() {
                     )}
 
                     <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-                      <span className="text-xs text-gray-500">Confidence:</span>
+                      <span className="text-xs text-gray-500">Affidabilità:</span>
                       <span
                         className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                           answer.confidence === "high"
@@ -297,14 +308,14 @@ export default function DocumentsPage() {
                             : "bg-red-100 text-red-700"
                         }`}
                       >
-                        {answer.confidence}
+                        {answer.confidence === "high" ? "Alta" : answer.confidence === "medium" ? "Media" : "Bassa"}
                       </span>
                     </div>
                   </div>
                 ) : (
                   <div className="text-center text-gray-400 py-12">
                     <MessageSquare className="h-10 w-10 mx-auto mb-3" />
-                    <p className="text-sm">Ask a question about the selected document</p>
+                    <p className="text-sm">Fai una domanda sul documento selezionato</p>
                   </div>
                 )}
               </div>
@@ -313,7 +324,7 @@ export default function DocumentsPage() {
             <div className="flex-1 flex items-center justify-center text-gray-400 p-8">
               <div className="text-center">
                 <FileText className="h-10 w-10 mx-auto mb-3" />
-                <p className="text-sm">Select a document to start asking questions</p>
+                <p className="text-sm">Seleziona un documento per iniziare a fare domande</p>
               </div>
             </div>
           )}

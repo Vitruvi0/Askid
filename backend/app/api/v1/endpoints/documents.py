@@ -57,15 +57,16 @@ async def upload_document(
     db: AsyncSession = Depends(get_db),
 ):
     if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are accepted")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Sono accettati solo file PDF")
 
-    if file.content_type and file.content_type != "application/pdf":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid file type")
+    ALLOWED_PDF_TYPES = {"application/pdf", "application/x-pdf", "application/octet-stream"}
+    if file.content_type and file.content_type not in ALLOWED_PDF_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo di file non valido")
 
     # Read and check size
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large (max 50MB)")
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File troppo grande (max 50MB)")
 
     import io
     file_obj = io.BytesIO(contents)
@@ -98,6 +99,9 @@ async def upload_document(
         ip_address=request.client.host if request.client else None,
     )
 
+    # Commit before scheduling background task to avoid race condition
+    await db.commit()
+
     # Process in background
     background_tasks.add_task(_process_document_background, document.id)
 
@@ -114,11 +118,11 @@ async def get_document(
     document = result.scalar_one_or_none()
 
     if not document:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento non trovato")
 
     from app.models.user import UserRole
     if current_user.role != UserRole.SUPER_ADMIN and document.agency_id != current_user.agency_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accesso negato")
 
     return document
 
@@ -134,11 +138,11 @@ async def delete_document(
     document = result.scalar_one_or_none()
 
     if not document:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento non trovato")
 
     from app.models.user import UserRole
     if current_user.role != UserRole.SUPER_ADMIN and document.agency_id != current_user.agency_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accesso negato")
 
     # Delete from S3
     storage_service.delete_file(document.s3_key)
@@ -157,7 +161,7 @@ async def delete_document(
     # Delete from DB (cascades to chunks)
     await db.delete(document)
     await db.flush()
-    return {"message": "Document permanently deleted"}
+    return {"message": "Documento eliminato definitivamente"}
 
 
 @router.post("/ask", response_model=QAResponse)
@@ -172,14 +176,14 @@ async def ask_question(
     document = result.scalar_one_or_none()
 
     if not document:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento non trovato")
 
     from app.models.user import UserRole
     if current_user.role != UserRole.SUPER_ADMIN and document.agency_id != current_user.agency_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accesso negato")
 
     if document.status != DocumentStatus.READY:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document is not yet processed")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Il documento non è ancora stato elaborato")
 
     await log_action(
         db,
@@ -206,11 +210,11 @@ async def upload_and_ask(
 ):
     """Upload a document and immediately ask a question about it."""
     if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are accepted")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Sono accettati solo file PDF")
 
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large")
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File troppo grande")
 
     import io
     file_obj = io.BytesIO(contents)
@@ -236,7 +240,7 @@ async def upload_and_ask(
     if document.status != DocumentStatus.READY:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Document processing failed: {document.error_message}",
+            detail=f"Elaborazione documento fallita: {document.error_message}",
         )
 
     if not question:
