@@ -26,7 +26,10 @@ async def lifespan(app: FastAPI):
     # Create tables (use Alembic in production)
     async with engine.begin() as conn:
         from sqlalchemy import text
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        try:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        except Exception as e:
+            logger.warning("pgvector extension not available - RAG features will be limited", error=str(e))
         await conn.run_sync(Base.metadata.create_all)
 
     # Ensure S3 bucket exists
