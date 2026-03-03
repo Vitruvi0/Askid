@@ -23,13 +23,16 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting ASKID API", environment=settings.ENVIRONMENT)
 
-    # Create tables (use Alembic in production)
-    async with engine.begin() as conn:
-        from sqlalchemy import text
-        try:
+    # Try to enable pgvector extension (separate connection so failure doesn't break anything)
+    from sqlalchemy import text
+    try:
+        async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        except Exception as e:
-            logger.warning("pgvector extension not available - RAG features will be limited", error=str(e))
+    except Exception as e:
+        logger.warning("pgvector extension not available - RAG features will be limited", error=str(e))
+
+    # Create tables
+    async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     # Ensure S3 bucket exists

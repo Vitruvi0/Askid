@@ -4,8 +4,13 @@ from datetime import datetime, timezone
 from sqlalchemy import String, Integer, DateTime, Enum, ForeignKey, Text, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from pgvector.sqlalchemy import Vector
 from app.core.database import Base
+
+try:
+    from pgvector.sqlalchemy import Vector
+    VectorColumn = Vector(1536)
+except Exception:
+    VectorColumn = Text
 
 
 class DocumentStatus(str, enum.Enum):
@@ -65,7 +70,7 @@ class DocumentChunk(Base):
     page_number: Mapped[int] = mapped_column(Integer, nullable=True)
     section_title: Mapped[str] = mapped_column(String(500), nullable=True)
     token_count: Mapped[int] = mapped_column(Integer, nullable=True)
-    embedding = mapped_column(Vector(1536), nullable=True)
+    embedding = mapped_column(VectorColumn, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
