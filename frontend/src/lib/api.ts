@@ -59,12 +59,12 @@ class ApiClient {
         localStorage.removeItem("refresh_token");
         window.location.href = "/auth/login";
       }
-      throw new Error("Authentication failed");
+      throw new Error("Autenticazione fallita");
     }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || `Request failed: ${response.status}`);
+      throw new Error(errorData.detail || `Richiesta fallita: ${response.status}`);
     }
 
     return response.json();
@@ -101,7 +101,7 @@ class ApiClient {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || "Login failed");
+      throw new Error(error.detail || "Accesso fallito");
     }
     const data = await response.json();
     localStorage.setItem("access_token", data.access_token);
@@ -118,6 +118,16 @@ class ApiClient {
   // Users
   getMe() {
     return this.request("/api/v1/users/me");
+  }
+
+  updateProfile(data: { full_name?: string; email?: string }) {
+    return this.request("/api/v1/users/me", { method: "PUT", body: JSON.stringify(data) });
+  }
+
+  uploadAvatar(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return this.request("/api/v1/users/me/avatar", { method: "POST", body: formData });
   }
 
   getUsers(skip = 0, limit = 50) {
@@ -141,9 +151,28 @@ class ApiClient {
     return this.request("/api/v1/agencies/", { method: "POST", body: JSON.stringify(data) });
   }
 
+  onboardAgency(data: {
+    agency_name: string;
+    agency_email: string;
+    agency_phone?: string;
+    agency_address?: string;
+    admin_full_name: string;
+    admin_email: string;
+    admin_password: string;
+    max_users: number;
+    max_documents: number;
+  }) {
+    return this.request("/api/v1/agencies/onboard", { method: "POST", body: JSON.stringify(data) });
+  }
+
   // Documents
-  getDocuments(skip = 0, limit = 50) {
-    return this.request(`/api/v1/documents/?skip=${skip}&limit=${limit}`);
+  getDocuments(skip = 0, limit = 50, filters?: { search?: string; status?: string; date_from?: string; date_to?: string }) {
+    const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
+    if (filters?.search) params.set("search", filters.search);
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.date_from) params.set("date_from", filters.date_from);
+    if (filters?.date_to) params.set("date_to", filters.date_to);
+    return this.request(`/api/v1/documents/?${params.toString()}`);
   }
 
   getDocument(id: string) {
@@ -160,10 +189,10 @@ class ApiClient {
     return this.request(`/api/v1/documents/${id}`, { method: "DELETE" });
   }
 
-  askQuestion(documentId: string, question: string) {
+  askQuestion(documentId: string, question: string, conversationId?: string) {
     return this.request("/api/v1/documents/ask", {
       method: "POST",
-      body: JSON.stringify({ document_id: documentId, question }),
+      body: JSON.stringify({ document_id: documentId, question, conversation_id: conversationId || undefined }),
     });
   }
 
@@ -172,6 +201,21 @@ class ApiClient {
     formData.append("file", file);
     formData.append("question", question);
     return this.request("/api/v1/documents/upload-and-ask", { method: "POST", body: formData });
+  }
+
+  // Conversations
+  getConversations(type?: string, skip = 0, limit = 20) {
+    const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
+    if (type) params.set("type", type);
+    return this.request(`/api/v1/conversations/?${params.toString()}`);
+  }
+
+  getConversation(id: string) {
+    return this.request(`/api/v1/conversations/${id}`);
+  }
+
+  deleteConversation(id: string) {
+    return this.request(`/api/v1/conversations/${id}`, { method: "DELETE" });
   }
 
   // Comparison
@@ -205,6 +249,72 @@ class ApiClient {
   // Reports
   generateReport(data: { source_type: string; source_data: Record<string, unknown>; client_name?: string; agency_name?: string }) {
     return this.request("/api/v1/reports/generate", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  // Exports
+  async downloadFile(endpoint: string, body: unknown, filename: string) {
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify(body),
+    });
+
+    if (response.status === 401) {
+      const refreshed = await this.refreshToken();
+      if (!refreshed) {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("access_token");
+          localStorage.removeItem("refresh_token");
+          window.location.href = "/auth/login";
+        }
+        throw new Error("Autenticazione fallita");
+      }
+      // Retry
+      const retryResponse = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: "POST",
+        headers: this.getHeaders(true),
+        body: JSON.stringify(body),
+      });
+      if (!retryResponse.ok) throw new Error("Download fallito");
+      const blob = await retryResponse.blob();
+      this.triggerDownload(blob, filename);
+      return;
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || "Download fallito");
+    }
+
+    const blob = await response.blob();
+    this.triggerDownload(blob, filename);
+  }
+
+  private triggerDownload(blob: Blob, filename: string) {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+  }
+
+  exportCalculatorPdf(calcType: string, data: Record<string, unknown>) {
+    return this.downloadFile("/api/v1/exports/calculator/pdf", { calc_type: calcType, data }, `calcolatore_${calcType}.pdf`);
+  }
+
+  exportCalculatorCsv(calcType: string, data: Record<string, unknown>) {
+    return this.downloadFile("/api/v1/exports/calculator/csv", { calc_type: calcType, data }, `calcolatore_${calcType}.csv`);
+  }
+
+  exportComparisonPdf(data: Record<string, unknown>) {
+    return this.downloadFile("/api/v1/exports/comparison/pdf", { data }, "confronto_polizze.pdf");
+  }
+
+  exportReportPdf(reportType: string, content: string) {
+    return this.downloadFile("/api/v1/exports/report/pdf", { report_type: reportType, content }, `report_${reportType}.pdf`);
   }
 
   // Admin

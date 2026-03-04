@@ -21,7 +21,7 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    logger.info("Starting ASKID API", environment=settings.ENVIRONMENT)
+    logger.info("Avvio ASKID API", environment=settings.ENVIRONMENT)
 
     # Try to enable pgvector extension (separate connection so failure doesn't break anything)
     from sqlalchemy import text
@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     except Exception as e:
-        logger.warning("pgvector extension not available - RAG features will be limited", error=str(e))
+        logger.warning("Estensione pgvector non disponibile - le funzionalità RAG saranno limitate", error=str(e))
 
     # Create tables
     async with engine.begin() as conn:
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     try:
         storage_service.ensure_bucket()
     except Exception as e:
-        logger.warning("Could not initialize S3 bucket", error=str(e))
+        logger.warning("Impossibile inizializzare il bucket S3", error=str(e))
 
     # Create default super admin if not exists
     from app.core.database import async_session
@@ -61,18 +61,18 @@ async def lifespan(app: FastAPI):
             )
             db.add(admin)
             await db.commit()
-            logger.info("Default super admin created: admin@askid.ai")
+            logger.info("Super admin predefinito creato: admin@askid.ai")
 
     yield
 
     # Shutdown
     await engine.dispose()
-    logger.info("ASKID API shutdown complete")
+    logger.info("Arresto ASKID API completato")
 
 
 app = FastAPI(
     title="ASKID API",
-    description="AI-powered insurance agency assistant",
+    description="Assistente assicurativo basato su intelligenza artificiale",
     version="1.0.0",
     lifespan=lifespan,
 )

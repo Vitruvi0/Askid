@@ -6,6 +6,7 @@ from app.core.database import get_db
 from app.middleware.auth import require_any_user
 from app.models.user import User, UserRole
 from app.models.document import Document, DocumentStatus
+from app.models.conversation import Conversation, Message, ConversationType, MessageRole
 from app.schemas.document import ComparisonRequest, ComparisonResponse
 from app.services.comparison import comparison_service
 from app.services.storage import storage_service
@@ -19,12 +20,36 @@ async def _verify_doc_access(doc_id: uuid.UUID, user: User, db: AsyncSession) ->
     result = await db.execute(select(Document).where(Document.id == doc_id))
     doc = result.scalar_one_or_none()
     if not doc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Document {doc_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Documento {doc_id} non trovato")
     if user.role != UserRole.SUPER_ADMIN and doc.agency_id != user.agency_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accesso negato")
     if doc.status != DocumentStatus.READY:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Document {doc.original_filename} is not ready")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Il documento {doc.original_filename} non è pronto")
     return doc
+
+
+async def _save_comparison_conversation(
+    db: AsyncSession, user: User, result: ComparisonResponse,
+    doc1_name: str, doc2_name: str, doc_ids: list,
+):
+    conversation = Conversation(
+        user_id=user.id,
+        agency_id=user.agency_id,
+        conversation_type=ConversationType.COMPARISON,
+        title=f"Confronto: {doc1_name} vs {doc2_name}",
+        document_ids=[str(d) for d in doc_ids],
+    )
+    db.add(conversation)
+    await db.flush()
+
+    message = Message(
+        conversation_id=conversation.id,
+        role=MessageRole.ASSISTANT,
+        content=result.executive_summary,
+        metadata_json=result.model_dump(mode="json"),
+    )
+    db.add(message)
+    await db.flush()
 
 
 @router.post("/", response_model=ComparisonResponse)
@@ -50,9 +75,17 @@ async def compare_documents(
         ip_address=request.client.host if request.client else None,
     )
 
-    return await comparison_service.compare_policies(
+    result = await comparison_service.compare_policies(
         data.document_id_1, data.document_id_2, db
     )
+
+    await _save_comparison_conversation(
+        db, current_user, result,
+        doc1.original_filename, doc2.original_filename,
+        [data.document_id_1, data.document_id_2],
+    )
+
+    return result
 
 
 @router.post("/upload", response_model=ComparisonResponse)
@@ -67,7 +100,7 @@ async def compare_uploaded_documents(
     documents = []
     for file in [file1, file2]:
         if not file.filename.lower().endswith(".pdf"):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are accepted")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Sono accettati solo file PDF")
 
         contents = await file.read()
         import io
@@ -92,8 +125,16 @@ async def compare_uploaded_documents(
         if document.status != DocumentStatus.READY:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Failed to process {file.filename}: {document.error_message}",
+                detail=f"Elaborazione di {file.filename} fallita: {document.error_message}",
             )
         documents.append(document)
 
-    return await comparison_service.compare_policies(documents[0].id, documents[1].id, db)
+    result = await comparison_service.compare_policies(documents[0].id, documents[1].id, db)
+
+    await _save_comparison_conversation(
+        db, current_user, result,
+        documents[0].original_filename, documents[1].original_filename,
+        [documents[0].id, documents[1].id],
+    )
+
+    return result

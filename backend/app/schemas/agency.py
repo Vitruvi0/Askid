@@ -23,6 +23,27 @@ class AgencyUpdate(BaseModel):
     max_documents: Optional[int] = None
 
 
+class AgencyOnboardingRequest(BaseModel):
+    # Agency details
+    agency_name: str
+    agency_email: EmailStr
+    agency_phone: Optional[str] = None
+    agency_address: Optional[str] = None
+    # Admin user details
+    admin_full_name: str
+    admin_email: EmailStr
+    admin_password: str
+    # Configuration
+    max_users: int = 10
+    max_documents: int = 500
+
+
+class OnboardingResponse(BaseModel):
+    agency: "AgencyResponse"
+    admin_user_id: uuid.UUID
+    admin_email: str
+
+
 class AgencyResponse(BaseModel):
     id: uuid.UUID
     name: str

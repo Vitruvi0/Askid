@@ -23,13 +23,13 @@ async def login(
     if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Email o password non validi",
         )
 
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is deactivated",
+            detail="Account disattivato",
         )
 
     user.last_login = datetime.now(timezone.utc)
@@ -65,18 +65,18 @@ async def refresh_token(
     try:
         payload = decode_token(data.refresh_token)
         if payload.get("type") != "refresh":
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Tipo di token non valido")
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
+            detail="Token di aggiornamento non valido o scaduto",
         )
 
     result = await db.execute(select(User).where(User.id == payload["sub"]))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Utente non trovato o inattivo")
 
     token_data = {
         "sub": str(user.id),

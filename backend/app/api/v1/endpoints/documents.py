@@ -1,6 +1,7 @@
 import uuid
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request, BackgroundTasks
+from datetime import datetime
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request, BackgroundTasks, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db, async_session
@@ -8,6 +9,7 @@ from app.middleware.auth import get_current_user, require_any_user
 from app.middleware.tenant import agency_filter
 from app.models.user import User
 from app.models.document import Document, DocumentChunk, DocumentStatus
+from app.models.conversation import Conversation, Message, ConversationType, MessageRole
 from app.schemas.document import DocumentResponse, DocumentListResponse, QuestionRequest, QAResponse
 from app.services.storage import storage_service
 from app.services.document_processor import process_document
@@ -32,11 +34,24 @@ async def _process_document_background(document_id: uuid.UUID):
 async def list_documents(
     skip: int = 0,
     limit: int = 50,
+    search: Optional[str] = Query(None, description="Cerca per nome file"),
+    doc_status: Optional[DocumentStatus] = Query(None, alias="status", description="Filtra per stato"),
+    date_from: Optional[datetime] = Query(None, description="Data inizio"),
+    date_to: Optional[datetime] = Query(None, description="Data fine"),
     current_user: User = Depends(require_any_user),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Document)
     query = agency_filter(query, Document, current_user)
+
+    if search:
+        query = query.where(Document.original_filename.ilike(f"%{search}%"))
+    if doc_status:
+        query = query.where(Document.status == doc_status)
+    if date_from:
+        query = query.where(Document.created_at >= date_from)
+    if date_to:
+        query = query.where(Document.created_at <= date_to)
 
     count_query = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_query)).scalar()
@@ -185,6 +200,37 @@ async def ask_question(
     if document.status != DocumentStatus.READY:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Il documento non è ancora stato elaborato")
 
+    # Get or create conversation
+    conversation = None
+    if data.conversation_id:
+        conv_result = await db.execute(
+            select(Conversation).where(Conversation.id == data.conversation_id)
+        )
+        conversation = conv_result.scalar_one_or_none()
+        if not conversation:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversazione non trovata")
+        if current_user.role != UserRole.SUPER_ADMIN and conversation.agency_id != current_user.agency_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accesso negato")
+
+    if not conversation:
+        conversation = Conversation(
+            user_id=current_user.id,
+            agency_id=current_user.agency_id,
+            conversation_type=ConversationType.DOCUMENT_QA,
+            title=data.question[:100],
+            document_ids=[str(data.document_id)],
+        )
+        db.add(conversation)
+        await db.flush()
+
+    # Save user message
+    user_msg = Message(
+        conversation_id=conversation.id,
+        role=MessageRole.USER,
+        content=data.question,
+    )
+    db.add(user_msg)
+
     await log_action(
         db,
         action="document_query",
@@ -196,7 +242,20 @@ async def ask_question(
         ip_address=request.client.host if request.client else None,
     )
 
-    return await rag_service.answer_question(data.question, data.document_id, db)
+    qa_result = await rag_service.answer_question(data.question, data.document_id, db)
+
+    # Save assistant message with full response metadata
+    assistant_msg = Message(
+        conversation_id=conversation.id,
+        role=MessageRole.ASSISTANT,
+        content=qa_result.answer,
+        metadata_json=qa_result.model_dump(mode="json"),
+    )
+    db.add(assistant_msg)
+    await db.flush()
+
+    qa_result.conversation_id = conversation.id
+    return qa_result
 
 
 @router.post("/upload-and-ask", response_model=QAResponse)
@@ -245,7 +304,7 @@ async def upload_and_ask(
 
     if not question:
         return QAResponse(
-            answer="Document uploaded and processed successfully. You can now ask questions about it.",
+            answer="Documento caricato ed elaborato con successo. Ora puoi fare domande su di esso.",
             referenced_sections=[],
             quoted_passages=[],
             exclusions_and_limits=[],

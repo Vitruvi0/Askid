@@ -23,14 +23,20 @@ class StorageService:
         except Exception:
             self.s3.create_bucket(Bucket=self.bucket)
 
-    def upload_file(self, file_data: BinaryIO, agency_id: uuid.UUID, filename: str) -> str:
-        s3_key = f"agencies/{agency_id}/documents/{uuid.uuid4()}/{filename}"
+    def upload_file(
+        self, file_data: BinaryIO, agency_id, filename: str,
+        content_type: str = "application/pdf", use_raw_key: bool = False,
+    ) -> str:
+        if use_raw_key:
+            s3_key = filename
+        else:
+            s3_key = f"agencies/{agency_id}/documents/{uuid.uuid4()}/{filename}"
         self.s3.upload_fileobj(
             file_data,
             self.bucket,
             s3_key,
             ExtraArgs={
-                "ContentType": "application/pdf",
+                "ContentType": content_type,
                 "ServerSideEncryption": "AES256",
             },
         )

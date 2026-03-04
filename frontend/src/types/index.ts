@@ -6,6 +6,7 @@ export interface User {
   full_name: string;
   role: UserRole;
   agency_id: string | null;
+  avatar_url: string | null;
   is_active: boolean;
   last_login: string | null;
   created_at: string;
@@ -54,6 +55,31 @@ export interface QAResponse {
   exclusions_and_limits: string[];
   sources: SourceChunk[];
   confidence: string;
+  conversation_id?: string;
+}
+
+export type ConversationType = "document_qa" | "comparison" | "calculator";
+
+export interface Conversation {
+  id: string;
+  conversation_type: ConversationType;
+  title: string | null;
+  document_ids: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  metadata_json: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: Message[];
 }
 
 export interface ComparisonCategory {

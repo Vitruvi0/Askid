@@ -22,7 +22,7 @@ export function formatCurrency(value: number): string {
 }
 
 export function formatDate(date: string): string {
-  return new Date(date).toLocaleDateString("en-US", {
+  return new Date(date).toLocaleDateString("it-IT", {
     year: "numeric",
     month: "short",
     day: "numeric",

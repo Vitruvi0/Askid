@@ -28,6 +28,7 @@ class DocumentListResponse(BaseModel):
 class QuestionRequest(BaseModel):
     question: str
     document_id: uuid.UUID
+    conversation_id: Optional[uuid.UUID] = None
 
 
 class QuestionWithUploadRequest(BaseModel):
@@ -48,6 +49,7 @@ class QAResponse(BaseModel):
     exclusions_and_limits: List[str]
     sources: List[SourceChunk]
     confidence: str
+    conversation_id: Optional[uuid.UUID] = None
 
 
 class ComparisonRequest(BaseModel):

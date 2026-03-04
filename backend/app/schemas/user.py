@@ -20,12 +20,18 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
     full_name: str
     role: UserRole
     agency_id: Optional[uuid.UUID]
+    avatar_url: Optional[str] = None
     is_active: bool
     last_login: Optional[datetime]
     created_at: datetime
