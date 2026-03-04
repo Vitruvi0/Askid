@@ -8,8 +8,10 @@ from app.core.database import Base
 
 try:
     from pgvector.sqlalchemy import Vector
+    PGVECTOR_AVAILABLE = True
     VectorColumn = Vector(1536)
 except Exception:
+    PGVECTOR_AVAILABLE = False
     VectorColumn = Text
 
 

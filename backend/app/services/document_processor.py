@@ -105,19 +105,28 @@ async def process_document(document_id: uuid.UUID, db: AsyncSession):
         # Chunk the text
         chunks = chunk_text(pages)
 
-        # Generate embeddings
-        texts = [c["content"] for c in chunks]
-        embeddings = await embedding_service.embed_texts(texts)
+        # Generate embeddings (only when pgvector is available)
+        from app.models.document import PGVECTOR_AVAILABLE
+        embeddings = None
+        if PGVECTOR_AVAILABLE:
+            try:
+                texts = [c["content"] for c in chunks]
+                embeddings = await embedding_service.embed_texts(texts)
+            except Exception as emb_err:
+                logger.warning(
+                    "Generazione embedding fallita, salvataggio chunk senza embedding",
+                    error=str(emb_err),
+                )
 
-        # Store chunks with embeddings
-        for chunk_data, embedding in zip(chunks, embeddings):
+        # Store chunks (with or without embeddings)
+        for i, chunk_data in enumerate(chunks):
             db_chunk = DocumentChunk(
                 document_id=document.id,
                 chunk_index=chunk_data["chunk_index"],
                 content=chunk_data["content"],
                 page_number=chunk_data["page_number"],
                 token_count=chunk_data["token_count"],
-                embedding=embedding,
+                embedding=embeddings[i] if embeddings else None,
             )
             db.add(db_chunk)
 

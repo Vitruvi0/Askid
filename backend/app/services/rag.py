@@ -4,8 +4,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from openai import AsyncOpenAI
 from app.core.config import settings
-from app.models.document import DocumentChunk
-from app.services.embedding import embedding_service
+from app.models.document import DocumentChunk, PGVECTOR_AVAILABLE
 from app.schemas.document import QAResponse, SourceChunk
 import structlog
 
@@ -45,17 +44,18 @@ class RAGService:
             client_kwargs["base_url"] = settings.OPENAI_BASE_URL
         self.client = AsyncOpenAI(**client_kwargs)
 
-    async def retrieve_relevant_chunks(
+    async def _retrieve_vector(
         self,
         query: str,
         document_id: uuid.UUID,
         db: AsyncSession,
-        top_k: int = 8,
+        top_k: int,
     ) -> List[dict]:
-        """Retrieve the most relevant chunks for a query using pgvector similarity search."""
+        """Vector similarity search using pgvector."""
+        from app.services.embedding import embedding_service
+
         query_embedding = await embedding_service.embed_query(query)
 
-        # Use pgvector cosine distance operator
         result = await db.execute(
             text("""
                 SELECT id, content, page_number, section_title, chunk_index,
@@ -73,17 +73,69 @@ class RAGService:
         )
 
         rows = result.fetchall()
-        chunks = []
-        for row in rows:
-            chunks.append({
+        return [
+            {
                 "id": str(row.id),
                 "content": row.content,
                 "page_number": row.page_number,
                 "section_title": row.section_title,
                 "similarity": float(row.similarity),
-            })
+            }
+            for row in rows
+        ]
 
-        return chunks
+    async def _retrieve_text(
+        self,
+        query: str,
+        document_id: uuid.UUID,
+        db: AsyncSession,
+        top_k: int,
+    ) -> List[dict]:
+        """Text-based fallback when pgvector is not available."""
+        result = await db.execute(
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == document_id)
+            .order_by(DocumentChunk.chunk_index)
+        )
+        all_chunks = result.scalars().all()
+
+        # Score by keyword overlap
+        query_words = set(query.lower().split())
+        scored = []
+        for chunk in all_chunks:
+            chunk_words = set(chunk.content.lower().split())
+            overlap = len(query_words & chunk_words)
+            score = overlap / max(len(query_words), 1)
+            scored.append((chunk, score))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        return [
+            {
+                "id": str(chunk.id),
+                "content": chunk.content,
+                "page_number": chunk.page_number,
+                "section_title": chunk.section_title,
+                "similarity": score,
+            }
+            for chunk, score in scored[:top_k]
+        ]
+
+    async def retrieve_relevant_chunks(
+        self,
+        query: str,
+        document_id: uuid.UUID,
+        db: AsyncSession,
+        top_k: int = 8,
+    ) -> List[dict]:
+        """Retrieve relevant chunks — vector search if available, text fallback otherwise."""
+        if PGVECTOR_AVAILABLE:
+            try:
+                return await self._retrieve_vector(query, document_id, db, top_k)
+            except Exception as e:
+                logger.warning("Ricerca vettoriale fallita, fallback a ricerca testuale", error=str(e))
+
+        return await self._retrieve_text(query, document_id, db, top_k)
 
     async def answer_question(
         self,
