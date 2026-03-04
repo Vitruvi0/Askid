@@ -1,9 +1,24 @@
 import csv
 import io
+import logging
 from typing import Optional
 from jinja2 import Template
-from weasyprint import HTML
 import markdown
+
+logger = logging.getLogger(__name__)
+
+
+def _get_weasyprint_html():
+    """Import lazy di WeasyPrint — richiede librerie di sistema (libgobject, pango)."""
+    try:
+        from weasyprint import HTML
+        return HTML
+    except (ImportError, OSError) as e:
+        logger.error(f"WeasyPrint non disponibile: {e}")
+        raise RuntimeError(
+            "Esportazione PDF non disponibile: librerie di sistema mancanti (WeasyPrint). "
+            "L'esportazione CSV è comunque disponibile."
+        ) from e
 
 
 class ExportService:
@@ -199,6 +214,7 @@ class ExportService:
             assumptions=data.get("assumptions", []),
         )
 
+        HTML = _get_weasyprint_html()
         return HTML(string=html_content).write_pdf()
 
     def calculator_to_csv(self, calc_type: str, data: dict) -> str:
@@ -224,6 +240,7 @@ class ExportService:
             incomplete_areas=data.get("incomplete_areas", []),
         )
 
+        HTML = _get_weasyprint_html()
         return HTML(string=html_content).write_pdf()
 
     def report_to_pdf(self, report_type: str, content: str) -> bytes:
@@ -245,6 +262,7 @@ class ExportService:
         </html>
         """
 
+        HTML = _get_weasyprint_html()
         return HTML(string=html_content).write_pdf()
 
 

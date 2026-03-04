@@ -1,5 +1,5 @@
 import io
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
@@ -29,7 +29,10 @@ async def export_calculator_pdf(
     req: CalculatorExportRequest,
     current_user: User = Depends(require_any_user),
 ):
-    pdf_bytes = export_service.calculator_to_pdf(req.calc_type, req.data)
+    try:
+        pdf_bytes = export_service.calculator_to_pdf(req.calc_type, req.data)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
@@ -55,7 +58,10 @@ async def export_comparison_pdf(
     req: ComparisonExportRequest,
     current_user: User = Depends(require_any_user),
 ):
-    pdf_bytes = export_service.comparison_to_pdf(req.data)
+    try:
+        pdf_bytes = export_service.comparison_to_pdf(req.data)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
@@ -68,7 +74,10 @@ async def export_report_pdf(
     req: ReportExportRequest,
     current_user: User = Depends(require_any_user),
 ):
-    pdf_bytes = export_service.report_to_pdf(req.report_type, req.content)
+    try:
+        pdf_bytes = export_service.report_to_pdf(req.report_type, req.content)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
