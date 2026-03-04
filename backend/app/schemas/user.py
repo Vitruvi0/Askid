@@ -18,6 +18,7 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
+    agency_id: Optional[uuid.UUID] = None
 
 
 class ProfileUpdate(BaseModel):

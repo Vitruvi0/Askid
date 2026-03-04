@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 class ApiClient {
   private baseUrl: string;
@@ -29,13 +29,19 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const isFormData = options.body instanceof FormData;
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      ...options,
-      headers: {
-        ...this.getHeaders(!isFormData),
-        ...options.headers,
-      },
-    });
+
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${endpoint}`, {
+        ...options,
+        headers: {
+          ...this.getHeaders(!isFormData),
+          ...options.headers,
+        },
+      });
+    } catch {
+      throw new Error("Impossibile raggiungere il server. Verifica la connessione di rete.");
+    }
 
     if (response.status === 401) {
       // Try refresh
@@ -94,11 +100,16 @@ class ApiClient {
 
   // Auth
   async login(email: string, password: string) {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/api/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch {
+      throw new Error("Impossibile raggiungere il server. Verifica la connessione di rete.");
+    }
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       throw new Error(error.detail || "Accesso fallito");
@@ -253,11 +264,16 @@ class ApiClient {
 
   // Exports
   async downloadFile(endpoint: string, body: unknown, filename: string) {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: "POST",
-      headers: this.getHeaders(true),
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: "POST",
+        headers: this.getHeaders(true),
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new Error("Impossibile raggiungere il server. Verifica la connessione di rete.");
+    }
 
     if (response.status === 401) {
       const refreshed = await this.refreshToken();

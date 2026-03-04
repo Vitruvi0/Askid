@@ -83,15 +83,36 @@ async def upload_document(
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File troppo grande (max 50MB)")
 
+    # Resolve agency_id (super_admins may not have one assigned)
+    from app.models.user import UserRole
+    from app.models.agency import Agency
+    agency_id = current_user.agency_id
+    if not agency_id:
+        if current_user.role == UserRole.SUPER_ADMIN:
+            result = await db.execute(select(Agency).limit(1))
+            agency = result.scalar_one_or_none()
+            if not agency:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nessuna agenzia configurata nel sistema")
+            agency_id = agency.id
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Utente non associato a nessuna agenzia")
+
     import io
+    import structlog
+    logger = structlog.get_logger()
+
     file_obj = io.BytesIO(contents)
 
     # Upload to S3
-    s3_key = storage_service.upload_file(file_obj, current_user.agency_id, file.filename)
+    try:
+        s3_key = storage_service.upload_file(file_obj, agency_id, file.filename)
+    except Exception as e:
+        logger.error("Errore upload storage", error=str(e), filename=file.filename)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Errore durante il caricamento del file")
 
     # Create document record
     document = Document(
-        agency_id=current_user.agency_id,
+        agency_id=agency_id,
         uploaded_by=current_user.id,
         filename=f"{uuid.uuid4()}.pdf",
         original_filename=file.filename,
@@ -107,7 +128,7 @@ async def upload_document(
         db,
         action="document_upload",
         user_id=current_user.id,
-        agency_id=current_user.agency_id,
+        agency_id=agency_id,
         resource_type="document",
         resource_id=str(document.id),
         details={"filename": file.filename, "size": len(contents)},
