@@ -35,6 +35,15 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    # Add missing columns to existing tables (create_all doesn't alter existing tables)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(1000)"
+            ))
+    except Exception as e:
+        logger.warning("Impossibile aggiungere colonne mancanti", error=str(e))
+
     # Ensure S3 bucket exists
     try:
         storage_service.ensure_bucket()
