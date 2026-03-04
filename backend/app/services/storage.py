@@ -1,12 +1,61 @@
+import os
 import uuid
+from pathlib import Path
 from typing import BinaryIO
-import boto3
-from botocore.config import Config
+
+import structlog
+
 from app.core.config import settings
 
+logger = structlog.get_logger()
 
-class StorageService:
+
+class LocalStorageService:
+    """Fallback filesystem storage when S3 credentials are not configured."""
+
     def __init__(self):
+        self.base_dir = Path(os.getenv("LOCAL_STORAGE_PATH", "/tmp/askid-storage"))
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Storage locale attivo", path=str(self.base_dir))
+
+    def ensure_bucket(self):
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+
+    def upload_file(
+        self, file_data: BinaryIO, agency_id, filename: str,
+        content_type: str = "application/pdf", use_raw_key: bool = False,
+    ) -> str:
+        if use_raw_key:
+            s3_key = filename
+        else:
+            s3_key = f"agencies/{agency_id}/documents/{uuid.uuid4()}/{filename}"
+        file_path = self.base_dir / s3_key
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_bytes(file_data.read())
+        return s3_key
+
+    def download_file(self, s3_key: str) -> bytes:
+        file_path = self.base_dir / s3_key
+        if not file_path.exists():
+            raise FileNotFoundError(f"File non trovato: {s3_key}")
+        return file_path.read_bytes()
+
+    def delete_file(self, s3_key: str):
+        file_path = self.base_dir / s3_key
+        if file_path.exists():
+            file_path.unlink()
+
+    def generate_presigned_url(self, s3_key: str, expiration: int = 3600) -> str:
+        return f"/api/v1/files/{s3_key}"
+
+
+class S3StorageService:
+    """S3-compatible storage (AWS S3, MinIO, Cloudflare R2, etc.)."""
+
+    def __init__(self):
+        import boto3
+        from botocore.config import Config
+
         self.s3 = boto3.client(
             "s3",
             endpoint_url=settings.S3_ENDPOINT_URL or None,
@@ -57,4 +106,12 @@ class StorageService:
         )
 
 
-storage_service = StorageService()
+def _create_storage_service():
+    if settings.S3_ACCESS_KEY_ID and settings.S3_SECRET_ACCESS_KEY:
+        logger.info("Storage S3 configurato")
+        return S3StorageService()
+    logger.warning("Credenziali S3 non configurate - utilizzo storage locale")
+    return LocalStorageService()
+
+
+storage_service = _create_storage_service()
